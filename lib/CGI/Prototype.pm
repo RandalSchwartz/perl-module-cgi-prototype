@@ -1,9 +1,8 @@
 package CGI::Prototype;
 
-our @VERSION = 0.70;
+our @VERSION = 0.75;
 
 use base qw(Class::Prototyped);
-
 use CGI;
 
 __PACKAGE__->reflect->addSlots
@@ -11,17 +10,25 @@ __PACKAGE__->reflect->addSlots
    ## main loop stuff
    activate => sub {
      my $self = shift;
-     my $page = $self->current_page;
-     if ($page) {		# it's a response
-       if ($page->validate and $page->store) {
-	 $page = $page->next_page;
+     eval {
+       my $page = $self->current_page;
+       if ($page) {		# it's a response
+	 if ($page->validate and $page->store) {
+	   $page = $page->next_page;
+	   $page->fetch;
+	 }
+       } else {			# it's an initial call
+	 $page = $self->default_page;
 	 $page->fetch;
        }
-     } else {			# it's an initial call
-       $page = $self->default_page;
-       $page->fetch;
-     }
-     $page->render;		# show the selected page
+       $page->render;		# show the selected page
+     };
+     $self->error($@) if $@;	# failed something, go to safe mode
+   },
+   error => sub {
+     my $self = shift;
+     my $error = shift;
+     $self->display("Content-type: text/plain\n\nERROR: $error");
    },
    [qw(fetch constant)] => 1,	# do nothing by default
    [qw(store constant)] => 1,	# return 1 to say it stored OK
@@ -46,6 +53,7 @@ __PACKAGE__->reflect->addSlots
    ## CGI stuff
    CGI => CGI->new,
    param => sub { shift->CGI->param(@_) }, # convenience method
+   delete_param => sub { shift->CGI->delete(@_) }, # delete param items
    ## template stuff
    tt => sub {
      my $self = shift;
@@ -74,7 +82,7 @@ __PACKAGE__->reflect->addSlots
    current_page => sub {	# undef if no current page
      my $self = shift;
      my $page_param = $self->param($self->hidden_page_field_name);
-     $self->pages->{$page_param};
+     defined $page_param ? $self->pages->{$page_param} : undef;
    },
    default_page => sub {
      my $self = shift;
@@ -97,15 +105,15 @@ CGI::Prototype - Create a CGI application by subclassing
 =head1 SYNOPSIS
 
   use CGI::Prototype;
-  CGI::Prototype->newPackage(MyApp =>
+  my $cp = CGI::Prototype->newPackage(MyApp =>
 			     [Class::Prototyped-style slots]...);
-  MyApp->add_page(pagename => [Class::Prototyped-style slots]...);
+  $cp->add_page(pagename => [Class::Prototyped-style slots]...);
   ...
-  MyApp->activate;
+  $cp->activate;
 
 =head1 DESCRIPTION
 
-L<CGI::Prototyped> creates a C<Class::Prototyped> engine for driving
+L<CGI::Prototype> creates a C<Class::Prototyped> engine for driving
 Template-Toolkit-processed multi-page web apps.
 
 You can create the null application by simply I<activating> it:
@@ -148,7 +156,7 @@ in your template somewhere, like:
 Pages are defined using the C<add_page> method.  For example, to override
 the default C<initial> page, you could simply define a new one:
 
-  MyApp->add_page(initial =>
+  $cp->add_page(initial =>
     template => \ '[% CGI.header %] Hello world!',
   );
 
@@ -159,14 +167,13 @@ filename searched along Template's include path.
 To get from one page to the next, you must have a form and override
 the C<next_page> method:
 
-  MyApp->add_page(initial =>
-    template => \ <<END,
-  [% CGI.header %]Hello!
-  <form>[% PAGE %][% CGI.submit('Next') %]</form>
-  END
-    next_page => sub { shift->lookup_page_or_die('final') },
+  $cp->add_page(initial =>
+	 template => \ '[% CGI.header %] Hello again!
+	   <form>[% PAGE %][% CGI.submit(Next) %]</form>',
+	  next_page => sub { shift->lookup_page_or_die('final') },
   );
-  MyApp->add_page(final =>
+
+  $cp->add_page(final =>
     template => \ '[% CGI.header %] Goodbye!',
   );
 
@@ -207,7 +214,7 @@ like:
 
     vars => {now => scalar localtime},
 
-If some pages needs to add additional variables, the simplest strategy
+If some pages need to add additional variables, the simplest strategy
 is to provide the hook in the base class as an additional slot:
 
     vars => sub {
@@ -220,7 +227,9 @@ is to provide the hook in the base class as an additional slot:
     additional_vars => {},
 
 and then override the C<additional_vars> slot in the pages that need
-more.  A more general approach is to call the superclass slot in a
+more.
+
+A more general approach is to call the superclass slot in a
 subclass page:
 
     'vars!' => sub {
@@ -233,6 +242,45 @@ subclass page:
 
 This is C<Class::Prototyped>'s method for superclass calling, so see
 there for details.
+
+In some cases, you may generate values on the fly or get them
+from a database or other source. To populate variables on the
+fly during the run and send them to the template, you can do
+something like this:
+
+    'vars!' => sub {
+      my $self = shift;
+      return {
+        %{$self->reflect->super('vars')}, # get base class vars
+        array_items => $self->array_items,
+      };
+    },
+    fetch => sub {
+      my $self = shift;
+      my @array_items = qw( Starbuck Apollo );
+      $self->reflect->addSlots(
+          [qw( array_items FIELD)] => \@array_items,
+        );
+     },
+
+As above, this uses C<Class::Prototyped>'s method for declaring
+variables with reflect.  Beware though that this self-modifies the
+objects, and may not work cleanly in a persistent environment.
+
+=head2 ERROR HANDLING
+
+Any uncaught C<die> calls (including failures in C<Template> code) are
+vectored to the active C<error> slot, which receives the C<$@> value
+as its parameter.  The default C<error> slot renders the message as a
+C<text/plain> output (similar to C<use CGI::Carp
+qw(fatalsToBrowser)>).  You'll probably want to override this in real
+applications.
+
+Note that C<Template> can catch selected view and model errors with
+its C<CATCH> mechanism; these will not be considered errors by the
+controller code, because they lead to a successful page rendering.
+Only uncaught view and model errors (and controller errors before or
+after the page has been rendered) will trigger the C<error> slot.
 
 =head2 PERSISTENCE AND PAGE SEQUENCING
 
@@ -261,11 +309,12 @@ L<Class::Prototyped>, L<Template::Manual>
 
 =head1 VERSION
 
-This is CGI::Prototyped version 0.70.
+This is CGI::Prototype version 0.75.
 
 =head1 AUTHOR
 
-Randal L. Schwartz, C<merlyn@stonehenge.com>
+Randal L. Schwartz: C<merlyn@stonehenge.com>,
+Jim Brandt: <cbrandt@buffalo.edu>
 
 =head1 BUGS
 
