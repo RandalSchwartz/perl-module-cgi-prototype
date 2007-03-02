@@ -4,6 +4,7 @@
 \bSCCS\b
 ,v$
 \B\.svn\b
+\b.git\b
 
 # Avoid Makemaker generated and utility files.
 \bMANIFEST\.bak
