@@ -1,0 +1,10 @@
+Revision history for Perl extension CGI::Prototype.
+
+0.90  Wed Dec  1 10:26:44 PST 2004
+      Refactor from monolith, pulling out CGI::Prototype::Hidden
+      Add tests and docs
+      Add CGI::Prototype::Mecha
+      First public release
+
+0.8x  [circa summer 2004]
+      CGI::Prototype version from client

@@ -1,0 +1,13 @@
+Changes
+lib/CGI/Prototype.pm
+lib/CGI/Prototype/Hidden.pm
+lib/CGI/Prototype/Mecha.pm
+Makefile.PL
+MANIFEST
+README
+TODO
+t/01-CGIP-core.t
+t/02-CGIP-flow.t
+t/03-CGIP-error.t
+t/cprove
+META.yml

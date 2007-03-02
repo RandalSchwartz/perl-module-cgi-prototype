@@ -1,104 +1,16 @@
 package CGI::Prototype;
 
-our @VERSION = 0.76;
+use 5.006;
+use strict;
+use warnings;
 
 use base qw(Class::Prototyped);
-use CGI;
 
-__PACKAGE__->reflect->addSlots
-  (
-   ## main loop stuff
-   activate => sub {
-     my $self = shift;
-     eval {
-       my $page = $self->current_page;
-       if ($page) {		# it's a response
-	 if ($page->validate and $page->store) {
-	   $page = $page->next_page;
-	   $page->fetch;
-	 }
-	 ## if the validation fails, do not fetch
-	 ## because we want sticky params to stay the same
-       } else {			# it's an initial call
-	 $page = $self->default_page;
-	 $page->fetch;
-       }
-       $page->render;		# show the selected page
-     };
-     $self->error($@) if $@;	# failed something, go to safe mode
-   },
-   error => sub {
-     my $self = shift;
-     my $error = shift;
-     $self->display("Content-type: text/plain\n\nERROR: $error");
-   },
-   [qw(fetch constant)] => 1,	# do nothing by default
-   [qw(store constant)] => 1,	# return 1 to say it stored OK
-   [qw(validate constant)] => 1, # return 1 to say it validated
-   next_page => sub { return shift; }, # stay here
-   render => sub {
-     my $self = shift;
-     my $tt = $self->cached_tt;
-     $self->param($self->hidden_page_field_name, $self->name);
-     my %vars = (CGI => $self->CGI,
-		 PAGE => $self->CGI->hidden($self->hidden_page_field_name),
-		 global => $self->vars);
-     $tt->process($self->template, \%vars, \my $output)
-       or die $tt->error;	# passes Template::Exception upward
-     $self->display($output);
-   },
-   display => sub {
-     my $self = shift;
-     my $output = shift;
-     print $output;
-   },
-   ## CGI stuff
-   CGI => CGI->new,
-   param => sub { shift->CGI->param(@_) }, # convenience method
-   delete_param => sub { shift->CGI->delete(@_) }, # delete param items
-   ## template stuff
-   tt => sub {
-     my $self = shift;
-     require Template;
+## no exports
 
-     Template->new($self->engine)
-       or die "creating tt: $Template::ERROR\n";
-   },
-   [qw(cached_tt FIELD autoload)] => sub { shift->tt },
-   engine => {},		# if you redefine this, copy cached_tt
-   vars => {},
-   template => \ '[% CGI.header %]This page intentionally left blank.',
-   ## page stuff
-   pages => {},
-   add_page => sub {
-     my $self = shift;
-     my $name = shift;
-     my $page = $self->new(name => $name, 'class*' => $self, @_);
-     $self->pages->{$name} = $page;
-   },
-   lookup_page_or_die => sub {
-     my $self = shift;
-     my $page = shift;
-     $self->pages->{$page} or die "$self cannot find a page named $page\n";
-   },
-   current_page => sub {	# undef if no current page
-     my $self = shift;
-     my $page_param = $self->param($self->hidden_page_field_name);
-     defined $page_param ? $self->pages->{$page_param} : undef;
-   },
-   default_page => sub {
-     my $self = shift;
-     my $name = $self->initial_page_name;
-     $self->lookup_page_or_die($name);
-   },
-   initial_page_name => 'initial',
-   hidden_page_field_name => '_page',
-  );
-__PACKAGE__->add_page(initial => ());	# the null application
+our $VERSION = '0.90';
 
-1;
-
-__END__
+our $_mirror = __PACKAGE__->reflect; # for slots that aren't subs
 
 =head1 NAME
 
@@ -106,222 +18,415 @@ CGI::Prototype - Create a CGI application by subclassing
 
 =head1 SYNOPSIS
 
-  use CGI::Prototype;
-  my $cp = CGI::Prototype->newPackage(MyApp =>
-			     [Class::Prototyped-style slots]...);
-  $cp->add_page(pagename => [Class::Prototyped-style slots]...);
-  ...
-  $cp->activate;
+  package My::HelloWorld;
+  use base CGI::Prototype;
+
+  sub template { \ <<'END_OF_TEMPLATE' }
+  [% self.CGI.header; %]
+  Hello world at [% USE Date; Date.format(date.now) | html %]!
+  END_OF_TEMPLATE
+
+  My::HelloWorld->activate;
 
 =head1 DESCRIPTION
 
-L<CGI::Prototype> creates a C<Class::Prototyped> engine for driving
-Template-Toolkit-processed multi-page web apps, as described in
-L<http://www.stonehenge.com/merlyn/LinuxMag/col56.html>.
+The core of every CGI application seems to be roughly the same:
+
+=over 4
+
+=item *
+
+Analyze the incoming parameters, cookies, and URLs to determine the
+state of the application (let's call this "dispatch").
+
+=item *
+
+Based on the current state, analyze the incoming parameters to respond
+to any form submitted ("respond").
+
+=item *
+
+From there, decide what response page should be generated, and produce
+it ("render").
+
+=back
+
+L<CGI::Prototype> creates a C<Class::Prototyped> engine for doing all
+this, with the right amount of callback hooks to customize the
+process.  Because I'm biased toward Template Toolkit for rendering
+HTML, I've also integrated that as my rendering engine of choice.
+And, being a fan of clean MVC designs, the classes become the
+controllers, and the templates become the views, with clean separation
+of responsibilities, and C<CGI::Prototype> a sort of "archetypal"
+controller.
 
 You can create the null application by simply I<activating> it:
 
   use CGI::Prototype;
   CGI::Prototype->activate;
 
-But this won't be very interesting.  You'll want to "subclass" this
+But this won't be very interesting.  You'll want to subclass this
 class in a C<Class::Prototyped>-style manner to override most of its
 behavior.  Slots can be added to add or alter behavior.  You can
 subclass your subclasses when groups of your CGI pages share similar
 behavior.  The possibilities are mind-boggling.
 
-The easiest documentation is the source code itself.  It's amazingly
-short.  Here are some things that aren't necessarily obvious from the
-source, however.
+Within the templates, C<self> refers to the current controller.  Thus,
+you can define callbacks trivially.  In your template, if you need some
+data, you can pull it as a request:
 
-=head2 PAGES
+  [% my_data = self.get_some_big_data %]
 
-Every page to be rendered to the user has a unique name.  It's easiest
-if this name is also a barewordable string.  The default initial page
-(and only page, unless you include a C<next_page> override) is called
-C<initial>.
+which is supplied by simply adding the same slot (method or data) in
+the controlling class:
 
-Every page is rendered using C<Template>, defined as the page's
-C<template> slot.  By default, two items are passed in as variables:
-C<PAGE> and C<CGI>.  C<CGI> is a CGI.pm object suitable for accessing
-C<param>s and generating HTML.
+  sub get_some_big_data {
+    my $self = shift;
+    return $self->some_other_method(size => 'big');
+  }
 
-C<PAGE> is a hidden field that should be placed in any form to be
-submitted, and is the only way to get your application to recognize
-what response page has been generated to a form.  So, just include it
-in your template somewhere, like:
+And since the classes are hierarchical, you can start out with an
+implementation for one page, then move it to a region or globally
+quickly.
 
-  <form action="POST">
-  [% PAGE %]
-  ... rest of your form
-  </form>
+Although the name C<CGI::Prototype> implies a CGI protocol, I see no
+reason that this would not work with C<Apache::Registry> in a
+C<mod_perl> environment, or a direct content handler such as:
 
-Pages are defined using the C<add_page> method.  For example, to override
-the default C<initial> page, you could simply define a new one:
+  package My::App;
+  use base CGI::Prototype;
+  sub handler {
+    __PACKAGE__->activate;
+  }
 
-  $cp->add_page(initial =>
-    template => \ '[% CGI.header %] Hello world!',
-  );
+Note that the C<$r> request object will have to be created if needed
+if you use this approach.
 
-Note that the template can be defined in all the traditional
-Template-Toolkit manners: a reference to a scalar, a filehandle, or a
-filename searched along Template's include path.
+=head2 CORE SLOTS
 
-To get from one page to the next, you must have a form and override
-the C<next_page> method:
+These slots provide core functionality.  You will probably not
+need to override these.
 
-  $cp->add_page(initial =>
-	 template => \ '[% CGI.header %] Hello again!
-	   <form>[% PAGE %][% CGI.submit(Next) %]</form>',
-	  next_page => sub { shift->lookup_page_or_die('final') },
-  );
+=over 4
 
-  $cp->add_page(final =>
-    template => \ '[% CGI.header %] Goodbye!',
-  );
+=item activate
 
-The C<next_page> slot must return a page or C<undef>.  Page objects
-are found by calling C<lookup_page_or_die> on yourself.  Page objects
-are also the return value from calling C<add_page>, so you can save
-them and do something more interesting for a mapping.
+Invoke the C<activate> slot to "activate" your application,
+causing it to process the incoming CGI values, select a page to be
+respond to the parameters, which in turn selects a page to render, and
+then responds with that page.  For example, your App might consist
+only of:
 
-=head2 TEMPLATE TOOLKIT INTERFACE
+  package My::App;
+  use base qw(CGI::Prototype);
+  My::App->activate;
 
-By default, C<Template>'s engine is created with no parameters.  You
-may override C<engine>'s slot with a hashref of other parameters.  For
-example, to set up a search path, pre-process a common template, and
-enable post-chomp, create your app like so:
+Again, this will not be interesting, but it shows that the null app
+is easy to create.  Almost always, you will want to override some
+of the "callback" slots below.
 
-  CGI::Prototype->newPackage
-  (MyApp =>
-   engine =>
-   {
-    INCLUDE_PATH => "/my/app/templates/include",
-    PRE_PROCESS => [ 'definitions' ],
-    POST_CHOMP => 1,
-   },
-   );
+=cut
 
-Note that C<engine> is also overridable on a per-page basis, but the
-first engine created will be used for all subsequent hits in a
-persistent environment.  To cache more than one engine, be sure to
-include this slot definition in every page that also defines
-C<engine>:
+sub activate {
+  my $self = shift;
+  eval {
+    $self->app_enter;
+    my $this_page = $self->dispatch;
+    $this_page->control_enter;
+    $this_page->respond_enter;
+    my $next_page = $this_page->respond;
+    $this_page->respond_leave;
+    if ($this_page ne $next_page) {
+      $this_page->control_leave;
+      $next_page->control_enter;
+    }
+    $next_page->render_enter;
+    $next_page->render;
+    $next_page->render_leave;
+    $next_page->control_leave;
+    $self->app_leave;
+  };
+  $self->error($@) if $@;	# failed something, go to safe mode
+}
 
-  [qw(cached_tt FIELD autoload)] => sub { shift->tt },
+=item CGI
 
-To pass in variables, create a C<vars> slot returning a hashref of the
-variables to be passed in.  By design, these populate the C<global>
-hash, so to create C<global.now> with the time of day, use something
-like:
+Invoking C<< $self->CGI >> gives you access to the CGI.pm object
+representing the incoming parameters and other CGI.pm-related values.
+For example,
 
-    vars => {now => scalar localtime},
+  $self->CGI->self_url
 
-If some pages need to add additional variables, the simplest strategy
-is to provide the hook in the base class as an additional slot:
+generates a self-referencing URL.  From a template, this is:
 
-    vars => sub {
-      my $self = shift;
-      return {
-	now => scalar localtime,
-	%{$self->additional_vars},
-      };
-    },
-    additional_vars => {},
+  [% self.CGI.self_url %]
 
-and then override the C<additional_vars> slot in the pages that need
-more.
+for the same thing.
 
-A more general approach is to call the superclass slot in a
-subclass page:
+=cut
 
-    'vars!' => sub {
-      my $self = shift;
-      return {
-        %{$self->reflect->super('vars')}, # get base class vars
-        my_var => 52,
-      };
-    },
+$_mirror->addSlot
+  ([qw(CGI FIELD autoload)] => sub { # must be reset in mod_perl
+     require CGI;
+     CGI->new;
+   });
 
-This is C<Class::Prototyped>'s method for superclass calling, so see
-there for details.
+=item render
 
-In some cases, you may generate values on the fly or get them
-from a database or other source. To populate variables on the
-fly during the run and send them to the template, you can do
-something like this:
+The C<render> method uses the results from C<engine> and C<template>
+to process a selected template through Template Toolkit.  If the
+result does not throw an error, C<< $self->display >> is called to
+show the result.
 
-    'vars!' => sub {
-      my $self = shift;
-      return {
-        %{$self->reflect->super('vars')}, # get base class vars
-        array_items => $self->array_items,
-      };
-    },
-    fetch => sub {
-      my $self = shift;
-      my @array_items = qw( Starbuck Apollo );
-      $self->reflect->addSlots(
-          [qw( array_items FIELD)] => \@array_items,
-        );
-     },
+=cut
 
-As above, this uses C<Class::Prototyped>'s method for declaring
-variables with reflect.  Beware though that this self-modifies the
-objects, and may not work cleanly in a persistent environment.
+sub render {
+  my $self = shift;
+  my $tt = $self->engine;
+  my $self_object = $self->reflect->object; # in case we have a classname
+  $tt->process($self->template, { self => $self_object }, \my $output)
+    or die $tt->error;	# passes Template::Exception upward
+  $self->display($output);
+}
 
-=head2 ERROR HANDLING
+=item display
 
-Any uncaught C<die> calls (including failures in C<Template> code) are
-vectored to the active C<error> slot, which receives the C<$@> value
-as its parameter.  The default C<error> slot renders the message as a
-C<text/plain> output (similar to C<use CGI::Carp
-qw(fatalsToBrowser)>).  You'll probably want to override this in real
-applications.
+The C<display> method is called to render the output of the template
+under normal circumstances, normally dumping the first parameter to
+C<STDOUT>.  Test harnesses may override this method to cause the
+output to appear into a variable, but normally this method is left
+alone.
 
-Note that C<Template> can catch selected view and model errors with
-its C<CATCH> mechanism; these will not be considered errors by the
-controller code, because they lead to a successful page rendering.
-Only uncaught view and model errors (and controller errors before or
-after the page has been rendered) will trigger the C<error> slot.
+=cut
 
-=head2 PERSISTENCE AND PAGE SEQUENCING
+sub display {			# override this to grab output for testing
+  my $self = shift;
+  my $output = shift;
+  print $output;
+}
 
-Every page can have a C<validate>, C<store>, and C<fetch> slot.  These
-should access their C<param> slot to get and put CGI params (using
-C<CGI.pm>'s C<param> function).
+=item param
 
-If C<validate> returns a true value, C<store> is called.  If C<store>
-returns true, then the page is considered successful, and C<next_page>
-is consulted to move on to the next page.  C<load> is called on the
-new page to pre-load form elements (via the I<sticky forms> feature of
-C<CGI.pm> by loading the C<param> values), or on the initial page.
-C<load> is B<not> called if the page has errors, so that the
-sticky-forms feature redisplays the erroneous values.
+The C<param> method is a convenience method that maps to
+C<< $self->CGI->param >>, because accessing params is a very common thing.
 
-By default, a stub C<validate> and C<store> routine are provided that
-both return true, and C<load> does nothing.
+=cut
 
-=head1 EXAMPLES
+sub param {
+  shift->CGI->param(@_);	# convenience method
+}
 
-Oh, don't you wish!
+=back
+
+=head2 CALLBACK SLOTS
+
+=over 4
+
+=item engine
+
+The engine returns a Template object that will be generating
+any response.  The default Template object has no parameters passed
+to C<new>.  Almost all real applications override C<engine> to define
+search paths and other Template Toolkit configuration items.
+
+If you're using this in a mod_perl environment, you should use
+C<Class::Prototyped>'s "autoload" field, to avoid recreating the object
+repeatedly.  Or, a lower-tech approach might be:
+
+  sub engine {
+    my $self = shift;
+
+    require Template;
+    our $engine ||= Template->new({ POST_CHOMP => 1 });
+    return $engine;  # (excessive redundancy)
+  }
+
+=cut
+
+$_mirror->addSlot
+  ([qw(engine FIELD autoload)] => sub {
+     my $self = shift;
+     require Template;
+     Template->new or die "Creating tt: $Template::ERROR\n";
+   });
+
+=item app_enter
+
+Called when the application is entered, at the very beginning of each
+hit.  Defaults to no action.
+
+=cut
+
+sub app_enter {}
+
+=item app_leave
+
+Called when the application is left, at the very end of each hit.
+Defaults to no action.
+
+=cut
+
+sub app_leave {}
+
+=item control_enter
+
+Called when a page gains control, either at the beginning for a
+response, or in the middle when switched for rendering.  Defaults to
+nothing.
+
+This is a great place to hang per-page initialization, because you'll
+get this callback at most once per hit.
+
+=cut
+
+sub control_enter {}
+
+=item control_leave
+
+Called when a page loses control, either after a response phase
+because we're switching to a new page, or render phase after we've
+delivered the new text to the browser.
+
+This is a great place to hang per-page teardown, because you'll get
+this callback at most once per hit.
+
+=cut
+
+sub control_leave {}
+
+=item render_enter
+
+Called when a page gains control specifically for rendering (delivering
+text to the browser), just after C<control_enter> if needed.
+
+=cut
+
+sub render_enter {}
+
+=item render_leave
+
+Called when a page loses control specifically for rendering (delivering
+text to the browser), just before C<control_leave>.
+
+=cut
+
+sub render_leave {}
+
+=item respond_enter
+
+Called when a page gains control specifically for responding
+(understanding the incoming parameters, and deciding what page should
+render the response), just after C<control_enter>.
+
+=cut
+
+sub respond_enter {}
+
+=item respond_leave
+
+Called when a page loses control specifically for rendering
+(understanding the incoming parameters, and deciding what page should
+render the response), just before C<control_leave> (if needed).
+
+=cut
+
+sub respond_leave {}
+
+=item template
+
+Delivers a template document object (something compatible to the
+C<Template> C<process> method, such as a C<Template::Document> or a
+filehandle or a reference to a scalar).  The default is a simple "this
+page intentionally left blank" template.
+
+When rendered, the B<only> extra global variable passed into the
+template is the C<self> variable, representing the controller object.
+However, as seen earlier, this is sufficient to allow access to
+anything you need from the template, thanks to Template Toolkit's
+ability to call methods on an object and understand the results.
+
+For example, to get at the C<barney> parameter:
+
+  The barney field is [% self.param("barney") | html %].
+
+=cut
+
+sub template {
+  \ '[% self.CGI.header %]This page intentionally left blank.';
+}
+
+=item error
+
+Called if an uncaught error is triggered in any of the other steps,
+passing the error text or object as the first method parameter.  The
+default callback simply displays the output to the browser, which is
+highly insecure and should be overridden, perhaps with something that
+logs the error and puts up a generic error message with an incident
+code for tracking.
+
+=cut
+
+sub error {
+  my $self = shift;
+  my $error = shift;
+  $self->display("Content-type: text/plain\n\nERROR: $error");
+}
+
+=item dispatch
+
+Called to analyze the incoming parameters to define which page object
+gets control based on the incoming CGI parameters.
+
+This callback B<must return> a page object (the object taking control
+during the response phase).  By default, this callback returns the
+application itself.
+
+=cut
+
+sub dispatch {
+  my $self = shift;
+  return $self;		# do nothing, stay here
+}
+
+=item respond
+
+Called to determine how to respond specifically to this set of
+incoming parameters.  Probably updates databases and such.
+
+This callback B<must return> a page object (the object taking control
+during the render phase).  By default, this callback returns the same
+object that had control during the response phase ("stay here" logic),
+which works most of the time.
+
+=cut
+
+sub respond {
+  my $self = shift;
+  return $self;		# do nothing, stay here
+}
+
+=back
 
 =head1 SEE ALSO
 
 L<Class::Prototyped>, L<Template::Manual>,
 L<http://www.stonehenge.com/merlyn/LinuxMag/col56.html>.
 
-=head1 VERSION
-
-This is CGI::Prototype version 0.76.
-
 =head1 AUTHOR
 
-Randal L. Schwartz: C<merlyn@stonehenge.com>,
-Jim Brandt: <cbrandt@buffalo.edu>
+Randal L. Schwartz, E<lt>merlyn@stonehenge.comE<gt>
 
-=head1 BUGS
+Special thanks to Geekcruises.com and an unnamed large university
+for providing funding for the development of this module.
 
-None yet.
+=head1 COPYRIGHT AND LICENSE
+
+Copyright (C) 2003, 2004 by Randal L. Schwartz
+
+This library is free software; you can redistribute it and/or modify
+it under the same terms as Perl itself, either Perl version 5.8.5 or,
+at your option, any later version of Perl 5 you may have available.
 
 =cut
+
+1;
