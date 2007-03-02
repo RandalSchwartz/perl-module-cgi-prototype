@@ -1,9 +1,13 @@
 #! perl
-use Test::More no_plan;
+use Test::More;
+
+if (eval "use CGI::Prototype::Mecha; 1") {
+  plan no_plan;
+} else {
+  plan skip_all => 'CGI::Prototype::Mecha required for testing CGIPH';
+}
 
 use lib qw(t/TestApp TestApp);
-
-use CGI::Prototype::Mecha;
 
 isa_ok
   my $m = CGI::Prototype::Mecha->new(protoapp => 'My::App'),

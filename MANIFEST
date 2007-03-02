@@ -1,7 +1,6 @@
 Changes
 lib/CGI/Prototype.pm
 lib/CGI/Prototype/Hidden.pm
-lib/CGI/Prototype/Mecha.pm
 Makefile.PL
 MANIFEST
 MANIFEST.SKIP
