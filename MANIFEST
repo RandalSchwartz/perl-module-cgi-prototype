@@ -4,7 +4,6 @@ lib/CGI/Prototype/Hidden.pm
 Makefile.PL
 MANIFEST
 MANIFEST.SKIP
-META.yml
 README
 t/01-CGIP-core.t
 t/02-CGIP-flow.t

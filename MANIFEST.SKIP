@@ -4,7 +4,8 @@
 \bSCCS\b
 ,v$
 \B\.svn\b
-\b.git\b
+.git\b
+.gitignore
 
 # Avoid Makemaker generated and utility files.
 \bMANIFEST\.bak
