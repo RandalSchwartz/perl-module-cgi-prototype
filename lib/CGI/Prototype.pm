@@ -1,6 +1,6 @@
 package CGI::Prototype;
 
-our @VERSION = 0.75;
+our @VERSION = 0.76;
 
 use base qw(Class::Prototyped);
 use CGI;
@@ -17,6 +17,8 @@ __PACKAGE__->reflect->addSlots
 	   $page = $page->next_page;
 	   $page->fetch;
 	 }
+	 ## if the validation fails, do not fetch
+	 ## because we want sticky params to stay the same
        } else {			# it's an initial call
 	 $page = $self->default_page;
 	 $page->fetch;
@@ -42,7 +44,7 @@ __PACKAGE__->reflect->addSlots
 		 PAGE => $self->CGI->hidden($self->hidden_page_field_name),
 		 global => $self->vars);
      $tt->process($self->template, \%vars, \my $output)
-       or die "running the page: ", $tt->error;
+       or die $tt->error;	# passes Template::Exception upward
      $self->display($output);
    },
    display => sub {
@@ -60,7 +62,7 @@ __PACKAGE__->reflect->addSlots
      require Template;
 
      Template->new($self->engine)
-       or die "creating tt: $Template::ERROR";
+       or die "creating tt: $Template::ERROR\n";
    },
    [qw(cached_tt FIELD autoload)] => sub { shift->tt },
    engine => {},		# if you redefine this, copy cached_tt
@@ -77,7 +79,7 @@ __PACKAGE__->reflect->addSlots
    lookup_page_or_die => sub {
      my $self = shift;
      my $page = shift;
-     $self->pages->{$page} or die "$self cannot find a page named $page";
+     $self->pages->{$page} or die "$self cannot find a page named $page\n";
    },
    current_page => sub {	# undef if no current page
      my $self = shift;
@@ -114,7 +116,8 @@ CGI::Prototype - Create a CGI application by subclassing
 =head1 DESCRIPTION
 
 L<CGI::Prototype> creates a C<Class::Prototyped> engine for driving
-Template-Toolkit-processed multi-page web apps.
+Template-Toolkit-processed multi-page web apps, as described in
+L<http://www.stonehenge.com/merlyn/LinuxMag/col56.html>.
 
 You can create the null application by simply I<activating> it:
 
@@ -305,11 +308,12 @@ Oh, don't you wish!
 
 =head1 SEE ALSO
 
-L<Class::Prototyped>, L<Template::Manual>
+L<Class::Prototyped>, L<Template::Manual>,
+L<http://www.stonehenge.com/merlyn/LinuxMag/col56.html>.
 
 =head1 VERSION
 
-This is CGI::Prototype version 0.75.
+This is CGI::Prototype version 0.76.
 
 =head1 AUTHOR
 
