@@ -1,5 +1,8 @@
 Revision history for Perl extension CGI::Prototype.
 
+0.9053	 Wed May 11 20:50:22 EDT 2005
+	 Add CGI::_reset_globals() so that this works with mod_perl-like places
+
 0.9052  Wed Apr  6 10:50:26 PDT 2005
 	Broke out CGI::Prototype::Mecha as a separate distro
 

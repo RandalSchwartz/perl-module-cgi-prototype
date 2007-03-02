@@ -8,7 +8,7 @@ use base qw(Class::Prototyped);
 
 ## no exports
 
-our $VERSION = '0.9052';
+our $VERSION = '0.9053';
 
 our $_mirror = __PACKAGE__->reflect; # for slots that aren't subs
 
@@ -411,6 +411,7 @@ sub initialize_CGI {
   $self->reflect->addSlot
     ([qw(CGI FIELD autoload)] => sub {
        require CGI;
+       CGI::_reset_globals();
        CGI->new;
      });
 }
