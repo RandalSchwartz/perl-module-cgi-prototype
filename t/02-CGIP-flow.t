@@ -3,7 +3,8 @@ use Test::More no_plan;
 
 require_ok 'CGI::Prototype';
 
-my @callbacks = qw(app_enter app_leave
+my @callbacks = qw(prototype_enter prototype_leave
+		   app_enter app_leave
 		   control_enter control_leave
 		   render_enter render_leave
 		   respond_enter respond_leave);
@@ -54,6 +55,7 @@ my $RESPOND = "My::App::One";
 My::App->activate;
 is_deeply \@TRACE,
   [
+   ['My::App', 'prototype_enter'],
    ['My::App', 'app_enter'],
    ['My::App', 'dispatch'],
    ['My::App::One', 'control_enter'],
@@ -65,6 +67,7 @@ is_deeply \@TRACE,
    ['My::App::One', 'render_leave'],
    ['My::App::One', 'control_leave'],
    ['My::App', 'app_leave'],
+   ['My::App', 'prototype_leave'],
   ],
   'correct steps called for same page';
 
@@ -73,6 +76,7 @@ $RESPOND = "My::App::Two";
 My::App->activate;
 is_deeply \@TRACE,
   [
+   ['My::App', 'prototype_enter'],
    ['My::App', 'app_enter'],
    ['My::App', 'dispatch'],
    ['My::App::One', 'control_enter'],
@@ -85,7 +89,8 @@ is_deeply \@TRACE,
    ['My::App::Two', 'display', 'My::App::Two template'],
    ['My::App::Two', 'render_leave'],
    ['My::App::Two', 'control_leave'],
-   ['My::App', 'app_leave']
+   ['My::App', 'app_leave'],
+   ['My::App', 'prototype_leave'],
   ],
   'correct steps called for new page';
 

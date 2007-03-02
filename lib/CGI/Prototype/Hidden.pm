@@ -104,7 +104,7 @@ The class prefix placed ahead of the state name, default C<My::App>.
 For example, the controller class for the C<welcome> state will be
 <My::App::welcome>.
 
-You should change this if you are using C<mod_perl> to something that
+You should change this if you are using L<mod_perl> to something that
 won't conflict with other usages of the same server space.  For CGI
 scripts, the default is an easy classname to remember.
 
@@ -224,9 +224,39 @@ sub name_to_page {
   return $package->reflect->object;
 }
 
+=item plugin
+
+B<This is still an experimental feature that will be reworked in
+future releases.>
+
+Called with a page name, returns a new page object that can be used as
+C<self> in a template, mixing in the code from the page's class for
+additional heavy lifting.
+
+For example, to have a "subpage" plugin, create a C<subpage.tt>
+and C<subpage.pm> file, then include the tt with:
+
+  [% INCLUDE My/App/subpage.tt
+       self = self.plugin("subpage")
+       other = parms
+       go = here
+  %]
+
+Now, within C<subpage.tt>, calls to C<self.SomeMethod> will first
+search the original page's lineage, and then the plugin class lineage
+for a definition for C<SomeMethod>.
+
+=cut
+
+sub plugin {
+  my $self = shift;
+  my $name = shift;
+  return $self->new('*' => $self->name_to_page($name));
+}
+
 =item dispatch
 
-Overridden from C<CGI::Prototype>.  Selects either the hidden field
+Overridden from L<CGI::Prototype>.  Selects either the hidden field
 state, or the default state, and returns the page object.
 
 =cut
@@ -258,7 +288,7 @@ sub shortname {
 
 =item render_enter
 
-Overridden from C<CGI::Prototype>.  Forces the hidden state param to
+Overridden from L<CGI::Prototype>.  Forces the hidden state param to
 the shortname of the current object, then calls
 C<render_enter_per_page>.
 
@@ -282,7 +312,7 @@ sub render_enter_per_page { }	# default action is nothing
 
 =item respond
 
-Overridden from C<CGI::Prototype>.  Calls C<respond_per_app> and then
+Overridden from L<CGI::Prototype>.  Calls C<respond_per_app> and then
 C<respond_per_page>, looking for a true value, which is then returned.
 
 If you have site-wide buttons (like a button-bar on the side or top of
@@ -324,7 +354,7 @@ sub respond_per_page {
 
 =item template
 
-Overridden from C<CGI::Prototype>.  Returns the name of a template,
+Overridden from L<CGI::Prototype>.  Returns the name of a template,
 defined by replacing the double-colons in the classname of the current
 page with forward slashes, and then appending C<.tt> (by default, see
 C<config_tt_extension>).  Because C<@INC> is added to the
@@ -345,9 +375,10 @@ sub template {
   return $template;
 }
 
-=item engine
+=item engine_config
 
-Returns a cached C<Template> object that is essentially:
+Overridden from L<CGI::Prototype>, so that the cached L<Template>
+object that is essentially:
 
   Template->new
     (
@@ -357,34 +388,30 @@ Returns a cached C<Template> object that is essentially:
      PROCESS => [$self->config_wrapper],
     )
 
-The caching is mainly for C<mod_perl>'s benefit, since this call would
-happen only once in a CGI environment.
-
-Note that this is just a first cut at this.  A future version of this
-module will likely get that list from a callback instead so you can
-tweak it easier.
-
 =cut
 
-$_mirror->addSlot
-  ([qw(engine FIELD autoload)] => sub {
-     my $self = shift;
-     require Template;
-
-     Template->new
-       (
-	POST_CHOMP => 1,
-	INCLUDE_PATH => [@INC],	# cheap but effective
-	COMPILE_DIR => $self->config_compile_dir,
-	PROCESS => [$self->config_wrapper],
-       ) or die "Creating tt: $Template::ERROR\n";
-   });
+sub engine_config {
+  my $self = shift;
+  return {
+	  POST_CHOMP => 1,
+	  INCLUDE_PATH => [@INC],
+	  COMPILE_DIR => $self->config_compile_dir,
+	  PROCESS => [$self->config_wrapper],
+	 };
+}
 
 =back
 
 =head1 SEE ALSO
 
 L<CGI::Prototype>, L<Template::Manual>
+
+=head1 BUG REPORTS
+
+Please report any bugs or feature requests to
+bug-cgi-prototype@rt.cpan.org, or through the web interface at
+http://rt.cpan.org. I will be notified, and then you'll automatically
+be notified of progress on your bug as I make changes.
 
 =head1 AUTHOR
 
@@ -395,7 +422,7 @@ for providing funding for the development of this module.
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright (C) 2003, 2004 by Randal L. Schwartz
+Copyright (C) 2003, 2004, 2005 by Randal L. Schwartz
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself, either Perl version 5.8.5 or,

@@ -13,11 +13,12 @@ require_ok 'CGI::Prototype';
 }
 
 {
-  open my $stdout, ">&STDOUT" or die;
+  open my $SAVEOUT, ">&STDOUT" or die;
   open STDOUT, '>test.out' or die;
   END { unlink 'test.out' }
+
   My::App->activate;
-  open STDOUT, ">&=".fileno($stdout) or die;
+  open STDOUT, ">&=".fileno($SAVEOUT) or die;
 }
 
 open IN, "<test.out";

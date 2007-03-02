@@ -1,7 +1,7 @@
 # http://module-build.sourceforge.net/META-spec.html
 #XXXXXXX This is a prototype!!!  It will change in the future!!! XXXXX#
 name:         CGI-Prototype
-version:      0.90
+version:      0.9050
 version_from: lib/CGI/Prototype.pm
 installdirs:  site
 requires:
@@ -10,4 +10,4 @@ requires:
     WWW::Mechanize:                0
 
 distribution_type: module
-generated_by: ExtUtils::MakeMaker version 6.24
+generated_by: ExtUtils::MakeMaker version 6.26

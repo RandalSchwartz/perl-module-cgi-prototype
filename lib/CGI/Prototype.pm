@@ -8,7 +8,7 @@ use base qw(Class::Prototyped);
 
 ## no exports
 
-our $VERSION = '0.90';
+our $VERSION = '0.9050';
 
 our $_mirror = __PACKAGE__->reflect; # for slots that aren't subs
 
@@ -130,6 +130,7 @@ of the "callback" slots below.
 sub activate {
   my $self = shift;
   eval {
+    $self->prototype_enter;
     $self->app_enter;
     my $this_page = $self->dispatch;
     $this_page->control_enter;
@@ -145,6 +146,7 @@ sub activate {
     $next_page->render_leave;
     $next_page->control_leave;
     $self->app_leave;
+    $self->prototype_leave;
   };
   $self->error($@) if $@;	# failed something, go to safe mode
 }
@@ -163,13 +165,12 @@ generates a self-referencing URL.  From a template, this is:
 
 for the same thing.
 
+See C<initialize_CGI> for how this slot gets established.
+
 =cut
 
 $_mirror->addSlot
-  ([qw(CGI FIELD autoload)] => sub { # must be reset in mod_perl
-     require CGI;
-     CGI->new;
-   });
+  (CGI => sub { die shift, "->initialize_CGI not called" });
 
 =item render
 
@@ -216,6 +217,123 @@ sub param {
   shift->CGI->param(@_);	# convenience method
 }
 
+=item interstitial
+
+B<Please note that this feature is still experimental
+and subject to change.>
+
+Use this in your per-page respond methods if you have a lot of heavy
+processing to perform.  For example, suppose you're deleting
+something, and it takes 5 seconds to do the first step, and 3 seconds
+to do the second step, and then you want to go back to normal web
+interaction.  Simulating the heavy lifting with sleep, we get:
+
+  my $p = $self->interstitial
+    ({ message => "Your delete is being processed...",
+       action => sub { sleep 5 },
+     },
+     { message => "Just a few seconds more....",
+       action => sub { sleep 3 },
+     },
+    );
+  return $p if $p;
+
+C<interstitial> returns either a page that should be returned so that
+it can be rendered (inside a wrapper that provides the standard top
+and bottom of your application page), or C<undef>.
+
+The list passed to
+C<interstitial> should be a series of hashrefs with one or more
+parameters reflecting the steps:
+
+=over 4
+
+=item message
+
+What the user should see while the step is computing.
+(Default: C<Working...>.)
+
+=item action
+
+A coderef with the action performed server-side during the message.
+(Default: no action.)
+
+=item delay
+
+The number of seconds the browser should wait before initiating
+the next connection, triggering the start of C<action>.
+(Default: 0 seconds.)
+
+=back
+
+The user sees the first message at the first call to C<interstitial>
+(via the first returned page), at which time a meta-refresh will
+immediately repost the same parameters as on the call that got you
+here.  (Thus, it's important not to have changed the params yet, or
+you might end up in a different part of your code.)  When the call to
+C<interstitial> is re-executed, the first coderef is then performed.
+At the end of that coderef, the second interstitial page is returned,
+and the user sees the second message, which then performs the next
+meta-refresh, which gets us back to this call to C<interstitial> again
+(whew).  The second coderef is executed while the user is seeing the
+second message, and then C<interstitial> returns C<undef>, letting us
+roll through to the final code.  Slick.
+
+=cut
+
+sub interstitial {
+  my $self = shift;
+  my @steps = @_;
+
+  my $cip = $self->config_interstitial_param;
+  my $step = $self->param($cip) || 0;
+  ## todo: validate $state is a small integer in range
+
+  if ($step >= 1 and $step <= @steps) { # we got work to do
+    if (defined (my $code = $steps[$step - 1]{action})) {
+      $code->();		# run the action
+    }
+  }
+
+  ## now show the user the message during the next step
+  $step++;
+
+  unless ($step >= 1 and $step <= @steps) {
+    $self->CGI->delete($cip);
+    return undef;		# signal steps being done
+  }
+  $self->param($cip, $step);
+
+  my $message = $steps[$step - 1]{message} || "Working...";
+  my $delay = $steps[$step - 1]{delay} || 0;
+
+  ## generate interstitial page as light class
+  return $self->new(
+		    url => $self->CGI->self_url,
+		    message => $message,
+		    delay => $delay,
+		    shortname => $self->shortname,
+		    template => \ <<'',
+<META HTTP-EQUIV=Refresh CONTENT="[% self.delay %]; URL=[% self.url | html %]">
+[% self.message %]<br>
+(If your browser isn't automatically trying to fetch a page right now,
+please <a href="[% self.url | html %]">continue manually</a>.)
+
+		   );
+}
+
+=item config_interstitial_param
+
+This parameter is used by C<interstitial> to determine the
+processing step.  You should ensure that the name doesn't conflict
+with any other param that you might need.
+
+The default value is C<_interstitial>.
+
+=cut
+
+sub config_interstitial_param { "_interstitial" }
+
 =back
 
 =head2 CALLBACK SLOTS
@@ -224,22 +342,12 @@ sub param {
 
 =item engine
 
-The engine returns a Template object that will be generating
-any response.  The default Template object has no parameters passed
-to C<new>.  Almost all real applications override C<engine> to define
-search paths and other Template Toolkit configuration items.
+The engine returns a Template object that will be generating any
+response.  The object is computed lazily (with autoloading) when
+needed.
 
-If you're using this in a mod_perl environment, you should use
-C<Class::Prototyped>'s "autoload" field, to avoid recreating the object
-repeatedly.  Or, a lower-tech approach might be:
-
-  sub engine {
-    my $self = shift;
-
-    require Template;
-    our $engine ||= Template->new({ POST_CHOMP => 1 });
-    return $engine;  # (excessive redundancy)
-  }
+The Template object is passed the configuration returned from
+the C<engine_config> callback.
 
 =cut
 
@@ -247,8 +355,65 @@ $_mirror->addSlot
   ([qw(engine FIELD autoload)] => sub {
      my $self = shift;
      require Template;
-     Template->new or die "Creating tt: $Template::ERROR\n";
+     Template->new($self->engine_config)
+       or die "Creating tt: $Template::ERROR\n";
    });
+
+=item engine_config
+
+Returns a hashref of desired parameters to pass to
+the C<Template> C<new> method as a configuration.  Defaults
+to an empty hash.
+
+=cut
+
+sub engine_config {
+  return {};
+}
+
+=item prototype_enter
+
+Called when the prototype mechanism is entered, at the very beginning
+of each hit.  Defaults to calling C<->initialize_CGI>, which see.
+
+Generally, you should not override this method. If you do, be sure to
+call the SUPER method, in case future versions of this module need
+additional initialization.
+
+=cut
+
+sub prototype_enter {
+  shift->initialize_CGI;
+}
+
+=item prototype_leave
+
+Called when the prototype mechanism is exited, at the very end of each hit.
+Defaults to no action.
+
+Generally, you should not override this method. If you do, be sure to
+call the SUPER method, in case future versions of this module need
+additional teardown.
+
+=cut
+
+sub prototype_leave {}
+
+=item initialize_CGI
+
+Sets up the CGI slot as an autoload, defaulting to creating a new
+CGI.pm object.  Called from C<prototype_enter>.
+
+=cut
+
+sub initialize_CGI {
+  my $self = shift;
+  $self->reflect->addSlot
+    ([qw(CGI FIELD autoload)] => sub {
+       require CGI;
+       CGI->new;
+     });
+}
 
 =item app_enter
 
@@ -412,6 +577,13 @@ sub respond {
 L<Class::Prototyped>, L<Template::Manual>,
 L<http://www.stonehenge.com/merlyn/LinuxMag/col56.html>.
 
+=head1 BUG REPORTS
+
+Please report any bugs or feature requests to
+bug-cgi-prototype@rt.cpan.org, or through the web interface at
+http://rt.cpan.org. I will be notified, and then you'll automatically
+be notified of progress on your bug as I make changes.
+
 =head1 AUTHOR
 
 Randal L. Schwartz, E<lt>merlyn@stonehenge.comE<gt>
@@ -421,7 +593,7 @@ for providing funding for the development of this module.
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright (C) 2003, 2004 by Randal L. Schwartz
+Copyright (C) 2003, 2004, 2005 by Randal L. Schwartz
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself, either Perl version 5.8.5 or,

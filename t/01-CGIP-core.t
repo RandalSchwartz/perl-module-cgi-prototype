@@ -11,6 +11,9 @@ isa_ok my $m = CGI::Prototype->reflect, 'Class::Prototyped::Mirror';
 isa_ok $m->object, 'CGI::Prototype';
 can_ok $m->object, @core_slots;
 
+eval { $m->object->CGI };
+like $@, qr/initialize_CGI not called/, 'CGI slot properly annoyed';
+
 ## now make sure the same thing is true for a derived app:
 
 {
@@ -21,6 +24,9 @@ can_ok $m->object, @core_slots;
 isa_ok $m = My::App->reflect, 'Class::Prototyped::Mirror';
 isa_ok $m->object, 'My::App';
 can_ok $m->object, @core_slots;
+
+eval { $m->object->CGI };
+like $@, qr/initialize_CGI not called/, 'CGI slot properly annoyed';
 
 {
   open my $stdout, ">&STDOUT" or die;

@@ -44,11 +44,37 @@ sub simple_request {
     return HTTP::Response->new(404, 'not found', [], "$uri");
   }
 
-  my $params = $request->method eq 'POST' ? $request->content : $uri->query;
+  my $params;
+  if ($request->method eq 'POST') {
+    if (my @parts = $request->parts) {
+      require Data::Dumper;
+      my %p;
+      ## warn "parts are ", Data::Dumper::Dumper(\@parts);
+      for my $part (@parts) {
+	my $value = $part->content;
+	my $key = $part->header('content-disposition');
+	$key =~ s/^form-data; name="(.*)"/$1/s or die "bad form-data: $key";
+	$key =~ s/\\"/"/g;
+	push @{$p{$key}}, $value;
+      }
+      ## warn "processed parts are ", Data::Dumper::Dumper(\%p);
+      $params = \%p;
+    } else {
+      $params = $request->content;
+    }
+  } else {
+    $params = $uri->query;
+  }
   ## print STDERR map "# params: $_\n", split /\n/, $params;
   local $ENV{SERVER_NAME} = "mecha";
 
-  $mirror->addSlot(CGI => scalar CGI->new($params));
+  ## need to fake up the CGI object now:
+  $mirror->addSlot
+    (initialize_CGI => sub {
+       my $self = shift;
+       $self->reflect->addSlot(CGI => scalar CGI->new($params));
+     });
+
   $OUTPUT = "";
 
   eval { $mirror->object->activate };
