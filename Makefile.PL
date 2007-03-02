@@ -8,6 +8,7 @@ WriteMakefile(
 			  'Template' => 0,
 			  'Class::Prototyped' => 0,
 			  'WWW::Mechanize' => 0,
+			  'LWP' => 5.803, # apparently some older versions break Mecha
 			 },
     ($] >= 5.005 ?
       (ABSTRACT_FROM  => 'lib/CGI/Prototype.pm',

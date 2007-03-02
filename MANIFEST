@@ -4,12 +4,15 @@ lib/CGI/Prototype/Hidden.pm
 lib/CGI/Prototype/Mecha.pm
 Makefile.PL
 MANIFEST
+MANIFEST.SKIP
 META.yml
 README
 t/01-CGIP-core.t
 t/02-CGIP-flow.t
 t/03-CGIP-error.t
 t/10-CGIPH-core.t
+t/98-TestPod.t
+t/99-TestPodCoverage.t
 t/cprove
 t/TestApp/My/App.pm
 t/TestApp/My/App/thanks.pm
