@@ -8,7 +8,7 @@ use base qw(Class::Prototyped);
 
 ## no exports
 
-our $VERSION = '0.9053';
+our $VERSION = '0.9054';
 
 our $_mirror = __PACKAGE__->reflect; # for slots that aren't subs
 

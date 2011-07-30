@@ -1,2 +1,5 @@
 Makefile
 MANIFEST.bak
+MYMETA.*
+CGI-Prototype-*.tar.gz
+

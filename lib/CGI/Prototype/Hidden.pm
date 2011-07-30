@@ -219,7 +219,7 @@ sub name_to_page {
 
   my $package = $self->config_class_prefix;
   $package .= "::$page";
-  eval "require $package" unless eval "defined %${package}::";
+  eval "require $package" unless eval "%${package}::";
   die if $@;
   return $package->reflect->object;
 }

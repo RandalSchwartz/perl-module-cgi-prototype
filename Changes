@@ -1,5 +1,8 @@
 Revision history for Perl extension CGI::Prototype.
 
+0.9054   Sat Jul 30 10:17:04 PDT 2011
+	 Remove "defined" from "defined %Foo::Bar::" for empty package test.
+
 0.9053	 Wed May 11 20:50:22 EDT 2005
 	 Add CGI::_reset_globals() so that this works with mod_perl-like places
 
