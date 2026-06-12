@@ -1,5 +1,8 @@
 Revision history for Perl extension CGI::Prototype.
 
+0.9055   Fri Jun 12 13:32:00 PDT 2026
+	 Added repository CPAN metadata in Makefile.PL.
+
 0.9054   Sat Jul 30 10:17:04 PDT 2011
 	 Remove "defined" from "defined %Foo::Bar::" for empty package test.
 
