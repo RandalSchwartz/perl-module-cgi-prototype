@@ -7,6 +7,7 @@ WriteMakefile(
     PREREQ_PM         => {
 			  'Template' => 0,
 			  'Class::Prototyped' => 0,
+			  'CGI' => 0,
 			 },
     ($] >= 5.005 ?
       (ABSTRACT_FROM  => 'lib/CGI/Prototype.pm',
